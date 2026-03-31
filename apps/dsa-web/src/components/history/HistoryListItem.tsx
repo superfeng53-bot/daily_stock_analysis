@@ -1,5 +1,5 @@
 import type React from 'react';
-import { Badge } from '../common';
+import { Badge, Tooltip } from '../common';
 import type { HistoryItem } from '../../types/analysis';
 import { getSentimentColor } from '../../types/analysis';
 import { formatDateTime } from '../../utils/format';
@@ -10,8 +10,11 @@ interface HistoryListItemProps {
   isViewing: boolean; // Indicates if this report is currently being viewed in the right panel
   isChecked: boolean; // Indicates if the checkbox is checked for bulk operations
   isDeleting: boolean;
+  isFavorite: boolean;
+  isFavoriteUpdating: boolean;
   onToggleChecked: (recordId: number) => void;
   onClick: (recordId: number) => void;
+  onToggleFavorite: (stockCode: string) => void;
 }
 
 const getOperationBadgeLabel = (advice?: string) => {
@@ -39,8 +42,11 @@ export const HistoryListItem: React.FC<HistoryListItemProps> = ({
   isViewing,
   isChecked,
   isDeleting,
+  isFavorite,
+  isFavoriteUpdating,
   onToggleChecked,
   onClick,
+  onToggleFavorite,
 }) => {
   const sentimentColor = item.sentimentScore !== undefined ? getSentimentColor(item.sentimentScore) : null;
   const stockName = item.stockName || item.stockCode;
@@ -86,20 +92,40 @@ export const HistoryListItem: React.FC<HistoryListItemProps> = ({
                   </span>
                 </span>
               </div>
-              {sentimentColor && (
-                <Badge
-                  variant="default"
-                  size="sm"
-                  className={`home-history-sentiment-badge shrink-0 shadow-none text-[11px] font-semibold leading-none transition-opacity duration-200${isTruncated ? ' group-hover/item:opacity-80' : ''}`}
-                  style={{
-                    color: sentimentColor,
-                    borderColor: `${sentimentColor}30`,
-                    backgroundColor: `${sentimentColor}10`,
-                  }}
-                >
-                  {getOperationBadgeLabel(item.operationAdvice)} {item.sentimentScore}
-                </Badge>
-              )}
+              <div className="flex items-center gap-1.5 shrink-0">
+                <Tooltip content={isFavorite ? '从自选股移除' : '添加到自选股'}>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onToggleFavorite(item.stockCode);
+                    }}
+                    disabled={isFavoriteUpdating || isDeleting}
+                    aria-label={isFavorite ? `从自选股移除 ${item.stockCode}` : `添加 ${item.stockCode} 到自选股`}
+                    className={`flex h-6 w-6 items-center justify-center rounded-md border text-sm font-semibold transition-colors ${
+                      isFavorite
+                        ? 'border-danger/40 text-danger hover:bg-danger/10'
+                        : 'border-success/40 text-success hover:bg-success/10'
+                    } disabled:cursor-not-allowed disabled:opacity-55`}
+                  >
+                    {isFavoriteUpdating ? '…' : (isFavorite ? '−' : '+')}
+                  </button>
+                </Tooltip>
+                {sentimentColor && (
+                  <Badge
+                    variant="default"
+                    size="sm"
+                    className={`home-history-sentiment-badge shrink-0 shadow-none text-[11px] font-semibold leading-none transition-opacity duration-200${isTruncated ? ' group-hover/item:opacity-80' : ''}`}
+                    style={{
+                      color: sentimentColor,
+                      borderColor: `${sentimentColor}30`,
+                      backgroundColor: `${sentimentColor}10`,
+                    }}
+                  >
+                    {getOperationBadgeLabel(item.operationAdvice)} {item.sentimentScore}
+                  </Badge>
+                )}
+              </div>
             </div>
             <div className="flex items-center gap-2 mt-1">
               <span className="text-[11px] text-secondary-text font-mono">

@@ -1,7 +1,10 @@
 import type React from 'react';
-import { useRef, useCallback, useEffect, useId } from 'react';
+import { useRef, useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { systemConfigApi, SystemConfigConflictError } from '../../api/systemConfig';
+import type { ParsedApiError } from '../../api/error';
+import { getParsedApiError } from '../../api/error';
 import type { HistoryItem } from '../../types/analysis';
-import { Badge, Button, ScrollArea } from '../common';
+import { Badge, Button, InlineAlert, ScrollArea } from '../common';
 import { DashboardPanelHeader, DashboardStateBlock } from '../dashboard';
 import { HistoryListItem } from './HistoryListItem';
 
@@ -48,6 +51,93 @@ export const HistoryList: React.FC<HistoryListProps> = ({
   const selectedCount = items.filter((item) => selectedIds.has(item.id)).length;
   const allVisibleSelected = items.length > 0 && selectedCount === items.length;
   const someVisibleSelected = selectedCount > 0 && !allVisibleSelected;
+  const [updatingStockCode, setUpdatingStockCode] = useState<string | null>(null);
+  const [mergeError, setMergeError] = useState<ParsedApiError | null>(null);
+  const [stockListValue, setStockListValue] = useState('');
+  const [configVersion, setConfigVersion] = useState('');
+  const [maskToken, setMaskToken] = useState('******');
+
+  const extractStockListValue = useCallback((configItems: Array<{ key: string; value: string }>) => {
+    const stockListItem = configItems.find((item) => item.key === 'STOCK_LIST');
+    return (stockListItem?.value || '').trim();
+  }, []);
+
+  const loadStockConfig = useCallback(async () => {
+    const config = await systemConfigApi.getConfig(true);
+    setConfigVersion(config.configVersion);
+    setMaskToken(config.maskToken || '******');
+    setStockListValue(extractStockListValue(config.items));
+    return config;
+  }, [extractStockListValue]);
+
+  const normalizedStockList = useMemo(
+    () => stockListValue
+      .split(',')
+      .map((entry) => entry.trim().toUpperCase())
+      .filter(Boolean),
+    [stockListValue],
+  );
+
+  const stockListSet = useMemo(
+    () => new Set(normalizedStockList),
+    [normalizedStockList],
+  );
+
+  const normalizeStockCode = useCallback((stockCode: string) => stockCode.trim().toUpperCase(), []);
+
+  const updateStockList = useCallback(async (nextList: string[]) => {
+    let currentConfigVersion = configVersion;
+    let currentMaskToken = maskToken;
+
+    if (!currentConfigVersion) {
+      const loadedConfig = await loadStockConfig();
+      currentConfigVersion = loadedConfig.configVersion;
+      currentMaskToken = loadedConfig.maskToken || '******';
+    }
+
+    const nextValue = nextList.join(',');
+    const updateResult = await systemConfigApi.update({
+      configVersion: currentConfigVersion,
+      maskToken: currentMaskToken,
+      reloadNow: true,
+      items: [{ key: 'STOCK_LIST', value: nextValue }],
+    });
+
+    setStockListValue(nextValue);
+    setConfigVersion(updateResult.configVersion);
+  }, [configVersion, loadStockConfig, maskToken]);
+
+  const toggleFavoriteStock = useCallback(async (stockCode: string) => {
+    if (updatingStockCode) {
+      return;
+    }
+
+    const normalizedCode = normalizeStockCode(stockCode);
+    const isFavorite = stockListSet.has(normalizedCode);
+    const nextList = isFavorite
+      ? normalizedStockList.filter((code) => code !== normalizedCode)
+      : [...normalizedStockList, normalizedCode];
+
+    setUpdatingStockCode(normalizedCode);
+    setMergeError(null);
+
+    try {
+      await updateStockList(nextList);
+    } catch (error: unknown) {
+      if (error instanceof SystemConfigConflictError) {
+        await loadStockConfig();
+        const conflictError = getParsedApiError(error);
+        setMergeError({
+          ...conflictError,
+          message: '配置已更新，请再次点击对应按钮。',
+        });
+      } else {
+        setMergeError(getParsedApiError(error));
+      }
+    } finally {
+      setUpdatingStockCode(null);
+    }
+  }, [loadStockConfig, normalizeStockCode, normalizedStockList, stockListSet, updateStockList, updatingStockCode]);
 
   // 使用 IntersectionObserver 检测滚动到底部
   const handleObserver = useCallback(
@@ -83,6 +173,12 @@ export const HistoryList: React.FC<HistoryListProps> = ({
       selectAllRef.current.indeterminate = someVisibleSelected;
     }
   }, [someVisibleSelected]);
+
+  useEffect(() => {
+    void loadStockConfig().catch(() => {
+      // ignore initial load failure; user can still browse history
+    });
+  }, [loadStockConfig]);
 
   return (
     <aside className={`glass-card overflow-hidden flex flex-col ${className}`}>
@@ -161,6 +257,14 @@ export const HistoryList: React.FC<HistoryListProps> = ({
           />
         ) : (
           <div className="space-y-2">
+            {mergeError ? (
+              <InlineAlert
+                variant="danger"
+                message={mergeError.message}
+                className="rounded-xl px-3 py-2 text-xs shadow-none"
+              />
+            ) : null}
+
             {items.map((item) => (
               <HistoryListItem
                 key={item.id}
@@ -168,8 +272,13 @@ export const HistoryList: React.FC<HistoryListProps> = ({
                 isViewing={selectedId === item.id}
                 isChecked={selectedIds.has(item.id)}
                 isDeleting={isDeleting}
+                isFavorite={stockListSet.has(normalizeStockCode(item.stockCode))}
+                isFavoriteUpdating={updatingStockCode === normalizeStockCode(item.stockCode)}
                 onToggleChecked={onToggleItemSelection}
                 onClick={onItemClick}
+                onToggleFavorite={(stockCode) => {
+                  void toggleFavoriteStock(stockCode);
+                }}
               />
             ))}
 

@@ -91,6 +91,7 @@ Go to your forked repo → `Settings` → `Secrets and variables` → `Actions` 
 | `SERVERCHAN3_SENDKEY` | ServerChan v3 Sendkey ([Get here](https://sc3.ft07.com/), mobile app push service) | Optional |
 | `CUSTOM_WEBHOOK_URLS` | Custom Webhook (supports DingTalk, etc., comma-separated) | Optional |
 | `CUSTOM_WEBHOOK_BEARER_TOKEN` | Bearer Token for custom webhooks (for authenticated webhooks) | Optional |
+| `CUSTOM_WEBHOOK_BODY_TEMPLATE` | Custom Webhook JSON body template for AstrBot, NapCat, or self-hosted services with special payloads | Optional |
 | `WEBHOOK_VERIFY_SSL` | Verify Webhook HTTPS certificates (default true). Set to false for self-signed certs. WARNING: Disabling has serious security risk (MITM), use only on trusted internal networks | Optional |
 
 > *Note: Configure at least one channel; multiple channels will all receive notifications
@@ -622,6 +623,16 @@ Supports any POST JSON Webhook, including:
 
 Set `CUSTOM_WEBHOOK_URLS`, separate multiple with commas.
 
+If AstrBot, NapCat, or a self-hosted service requires a custom request body, set
+`CUSTOM_WEBHOOK_BODY_TEMPLATE`. The rendered value must be a JSON object. Prefer
+`$content_json` so newlines and quotes stay valid JSON:
+
+```env
+CUSTOM_WEBHOOK_BODY_TEMPLATE={"msg_type":"text","content":$content_json}
+```
+
+Available placeholders: `$content_json`, `$content`, `$title_json`, `$title`.
+
 ### Discord
 
 Discord supports two push methods:
@@ -787,6 +798,8 @@ python main.py --debug
 Log file locations:
 - Regular logs: `logs/stock_analysis_YYYYMMDD.log`
 - Debug logs: `logs/stock_analysis_debug_YYYYMMDD.log`
+
+Debug logs keep the app's own DEBUG messages, but LiteLLM internals default to `WARNING` to avoid token-level third-party noise during streaming generation. To inspect LiteLLM internals temporarily, set `LITELLM_LOG_LEVEL=DEBUG` in `.env`.
 
 ### SQLite Write Stability
 
